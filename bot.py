@@ -1,5 +1,6 @@
 import os
 import asyncio
+import re
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -11,92 +12,101 @@ from telegram.ext import (
 )
 import yt_dlp
 
-# ===== CONFIG =====
 BOT_TOKEN = "8335582124:AAF1Pd4SSaguT1WfFJbsOLLejJis3LTDXcs"
 GROUP_LINK = "https://t.me/+Qm_5J1hj8NcwYjBl"
 DOWNLOAD_DIR = "downloads"
+
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# ===== START =====
+# -------- helpers --------
+
+def is_youtube(url):
+    return "youtube.com" in url or "youtu.be" in url
+
+def is_tiktok(url):
+    return "tiktok.com" in url
+
+def download_tiktok(url, quality):
+    ydl_opts = {
+        "outtmpl": f"{DOWNLOAD_DIR}/%(title).50s.%(ext)s",
+        "format": "mp4",
+        "quiet": True,
+    }
+    if quality == "480":
+        ydl_opts["format"] = "mp4[height<=480]/mp4"
+    elif quality == "720":
+        ydl_opts["format"] = "mp4[height<=720]/mp4"
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        return ydl.prepare_filename(info)
+
+# -------- handlers --------
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("📢 Support Group", url=GROUP_LINK)]
     ]
     await update.message.reply_text(
-        "👋 স্বাগতম! 🎬\nভিডিও ডাউনলোড করতে লিংক প্রেরণ করুন 🥹",
+        "👋 স্বাগতম!\n🎬 ভিডিও ডাউনলোড করতে লিংক প্রেরণ করুন 🥹",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-# ===== LINK HANDLE =====
 async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = update.message.text.strip()
 
-    if "youtube.com" in url or "youtu.be" in url:
+    if is_youtube(url):
         await update.message.delete()
-        await update.message.chat.send_message(
-            "❌ YouTube ভিডিও ডাউনলোড করা যায় না\n✅ শুধুমাত্র TikTok ভিডিও দিন"
+        await update.message.reply_text(
+            "❌ YouTube ভিডিও ডাউনলোড করা যায় না।\n✅ শুধুমাত্র TikTok ভিডিও পাঠান।"
         )
         return
 
-    if "tiktok.com" not in url:
+    if not is_tiktok(url):
         return
 
     context.user_data["url"] = url
 
     keyboard = [
         [
-            InlineKeyboardButton("720p", callback_data="720"),
-            InlineKeyboardButton("480p", callback_data="480"),
+            InlineKeyboardButton("480p", callback_data="q_480"),
+            InlineKeyboardButton("720p", callback_data="q_720"),
         ]
     ]
     await update.message.reply_text(
-        "🔽 কোয়ালিটি বেছে নিন",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        "🎞 কোন কোয়ালিটিতে ডাউনলোড করবেন?",
+        reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
-# ===== DOWNLOAD =====
-def download_video(url, quality):
-    ydl_opts = {
-        "format": f"bestvideo[height<={quality}]+bestaudio/best",
-        "outtmpl": f"{DOWNLOAD_DIR}/%(title).50s.%(ext)s",
-        "quiet": True,
-    }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        return ydl.prepare_filename(info)
-
-async def progress(msg):
-    for i in range(1, 101, 7):
-        await msg.edit_text(f"⏳ Downloading... {i}%")
-        await asyncio.sleep(0.3)
-
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def quality_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
     url = context.user_data.get("url")
-    quality = query.data
+    quality = query.data.split("_")[1]
 
-    await query.message.delete()
-    prog = await query.message.chat.send_message("⏳ Downloading... 1%")
+    msg = await query.edit_message_text("⏳ Processing... 1%")
 
-    await progress(prog)
+    for i in range(2, 101, 7):
+        await asyncio.sleep(0.2)
+        try:
+            await msg.edit_text(f"⏳ Processing... {i}%")
+        except:
+            pass
 
-    path = await asyncio.to_thread(download_video, url, quality)
-    await prog.delete()
-
-    await query.message.chat.send_video(video=open(path, "rb"))
+    path = await asyncio.to_thread(download_tiktok, url, quality)
+    await query.message.reply_video(video=open(path, "rb"))
     os.remove(path)
 
-# ===== MAIN =====
+# -------- main --------
+
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_link))
-    app.add_handler(CallbackQueryHandler(button_handler))
+    app.add_handler(CallbackQueryHandler(quality_handler))
 
-    print("Bot running...")
     app.run_polling()
 
 if __name__ == "__main__":
