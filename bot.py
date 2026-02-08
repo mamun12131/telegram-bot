@@ -99,7 +99,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await status.delete()
 
 
-if name == "main":
+if __name__ == "__main__":
+    main()
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_link))
     app.add_handler(CallbackQueryHandler(button_handler))
