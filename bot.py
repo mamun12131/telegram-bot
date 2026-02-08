@@ -11,16 +11,14 @@ from telegram.ext import (
 
 BOT_TOKEN = os.getenv("8586804228:AAEmGwq9Gba4NBacILVIKAUIyROWeRpGwfE")
 
-# ---------- Handlers ----------
-
+# ---------- Commands ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 Send me a video link and I will download it for you."
+        "👋 Hi!\nSend me a video link.\nI will give you download options."
     )
 
+# ---------- Handle text / link ----------
 async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-
     keyboard = [
         [
             InlineKeyboardButton("🎥 Video", callback_data="video"),
@@ -29,25 +27,26 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    context.user_data["link"] = text
     await update.message.reply_text(
-        "Choose format:", reply_markup=reply_markup
+        "Choose download type 👇",
+        reply_markup=reply_markup
     )
 
+# ---------- Button handler ----------
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    link = context.user_data.get("link")
-
     if query.data == "video":
-        await query.edit_message_text(f"⬇️ Downloading video from:\n{link}")
+        await query.edit_message_text("🎥 Video download started...")
     elif query.data == "audio":
-        await query.edit_message_text(f"⬇️ Downloading audio from:\n{link}")
+        await query.edit_message_text("🎵 Audio download started...")
 
-# ---------- Main ----------
-
+# ---------- MAIN ----------
 def main():
+    if not BOT_TOKEN:
+        raise ValueError("BOT_TOKEN not found in environment variables")
+
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -57,5 +56,6 @@ def main():
     print("🤖 Bot running...")
     app.run_polling()
 
+# ⚠️ এই লাইনটাই আগে ভুল ছিল
 if name == "main":
     main()
