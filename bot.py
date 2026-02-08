@@ -1,5 +1,6 @@
 import os
 import asyncio
+import random
 from telegram import (
     Update,
     InlineKeyboardButton,
@@ -15,32 +16,27 @@ from telegram.ext import (
 )
 import yt_dlp
 
-# 🔐 তোমার আগের BOT TOKEN (hard-coded)
 BOT_TOKEN = "8586804228:AAEmGwq9Gba4NBacILVIKAUIyROWeRpGwfE"
-
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# ---------------- helpers ----------------
+# ---------- helpers ----------
 
-async def processing_animation(msg):
-    frames = ["⏳ Processing.", "⏳ Processing..", "⏳ Processing..."]
-    for _ in range(6):
-        for f in frames:
-            try:
-                await msg.edit_text(f)
-            except:
-                pass
-            await asyncio.sleep(0.5)
+async def fake_progress(msg):
+    percent = 0
+    while percent < 100:
+        percent += random.randint(1, 9)
+        if percent > 100:
+            percent = 100
+        try:
+            await msg.edit_text(f"⬇️ ডাউনলোড হচ্ছে… {percent}%")
+        except:
+            pass
+        await asyncio.sleep(random.uniform(0.4, 0.8))
 
-def download_video(url, quality):
-    fmt = (
-        "bestvideo[height<=720]+bestaudio/best"
-        if quality == "720"
-        else "bestvideo[height<=480]+bestaudio/best"
-    )
+def download_video(url, height):
     ydl_opts = {
-        "format": fmt,
+        "format": f"bestvideo[height<={height}]+bestaudio/best",
         "merge_output_format": "mp4",
         "outtmpl": f"{DOWNLOAD_DIR}/%(title).50s.%(ext)s",
         "quiet": True,
@@ -50,45 +46,31 @@ def download_video(url, quality):
         info = ydl.extract_info(url, download=True)
         return ydl.prepare_filename(info)
 
-def download_audio(url):
-    ydl_opts = {
-        "format": "bestaudio",
-        "outtmpl": f"{DOWNLOAD_DIR}/%(title).50s.%(ext)s",
-        "quiet": True,
-        "noplaylist": True,
-        "postprocessors": [{
-            "key": "FFmpegExtractAudio",
-            "preferredcodec": "mp3",
-        }],
-    }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        path = ydl.prepare_filename(info)
-        if path.endswith(".webm"):
-            path = path.replace(".webm", ".mp3")
-        return path
-
-# ---------------- commands ----------------
+# ---------- commands ----------
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 স্বাগতম!\n\n"
-        "🎬 ভিডিও ডাউনলোড করতে লিংক প্রেরণ করুন\n"
-        "🎵 MP3 / MP4 বেছে নেওয়ার অপশন পাবেন"
+        "👋 স্বাগতম!\n🎬 ভিডিও ডাউনলোড করতে লিংক প্রেরণ করুন 🥹"
     )
 
-# ---------------- handlers ----------------
+# ---------- handlers ----------
 
 async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["url"] = update.message.text.strip()
+
     keyboard = [
         [
-            InlineKeyboardButton("🎬 MP4 Video", callback_data="mp4"),
-            InlineKeyboardButton("🎵 MP3 Audio", callback_data="mp3"),
-        ]
+            InlineKeyboardButton("1080p", callback_data="1080"),
+            InlineKeyboardButton("720p", callback_data="720"),
+        ],
+        [
+            InlineKeyboardButton("480p", callback_data="480"),
+            InlineKeyboardButton("360p", callback_data="360"),
+        ],
     ]
+
     await update.message.reply_text(
-        "কি ডাউনলোড করতে চান?",
+        "কোন কোয়ালিটিতে ডাউনলোড করবেন?",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
@@ -98,49 +80,41 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     url = context.user_data.get("url")
     if not url:
-        await query.edit_message_text("❌ লিংক পাওয়া যায়নি")
+        await query.message.delete()
         return
 
-    if query.data == "mp4":
-        keyboard = [
-            [
-                InlineKeyboardButton("720p", callback_data="720"),
-                InlineKeyboardButton("480p", callback_data="480"),
-            ]
-        ]
-        await query.edit_message_text(
-            "🎚️ ভিডিও কোয়ালিটি নির্বাচন করুন",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-        )
-        return
-
-    msg = await query.edit_message_text("⏳ Processing...")
+    # সব আগের মেসেজ ডিলিট
     try:
-        anim = asyncio.create_task(processing_animation(msg))
-        if query.data == "mp3":
-            path = await asyncio.to_thread(download_audio, url)
-            anim.cancel()
-            await query.message.reply_audio(audio=open(path, "rb"))
-        else:
-            path = await asyncio.to_thread(download_video, url, query.data)
-            anim.cancel()
-            await query.message.reply_video(
-                video=open(path, "rb"),
-                supports_streaming=True
-            )
-        os.remove(path)
-        await msg.delete()
-    except Exception:
-        await msg.edit_text("❌ Download failed")
+        await query.message.delete()
+    except:
+        pass
 
-# ---------------- main ----------------
+    progress_msg = await query.message.reply_text("⬇️ ডাউনলোড হচ্ছে… 0%")
+
+    progress_task = asyncio.create_task(fake_progress(progress_msg))
+
+    try:
+        path = await asyncio.to_thread(download_video, url, query.data)
+        progress_task.cancel()
+
+        await progress_msg.delete()
+        await query.message.reply_video(
+            video=open(path, "rb"),
+            supports_streaming=True
+        )
+        os.remove(path)
+    except Exception:
+        progress_task.cancel()
+        await progress_msg.edit_text("❌ ডাউনলোড ব্যর্থ হয়েছে")
+
+# ---------- main ----------
 
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_link))
     app.add_handler(CallbackQueryHandler(button_handler))
-    print("🤖 Advanced downloader bot running...")
+    print("🤖 Video downloader bot running...")
     app.run_polling()
 
 if __name__ == "__main__":
